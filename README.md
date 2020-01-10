@@ -1,3 +1,3 @@
 # Workshops
 Course workshops
-Sparkle is here
+Sparkle is here... now she is gone
