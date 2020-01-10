@@ -9,11 +9,9 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Research Statement
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+I am an Assistant Professor in the Department of Biological Sciences at Florida International University.My primary research focus is to improve our understanding of how climate and disturbance regimes influence spatial and temporal variability in ecosystem structure and function. Using remote sensing, eddy covariance, and spatial and temporal models I explores questions related to ecosystem condition, sustainability, and vulnerability to climate extremes. <http://malonelab.fiu.edu>
 
 ```{r cars}
 summary(cars)
