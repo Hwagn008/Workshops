@@ -1,0 +1,277 @@
+---
+title: "Nonlinear Models and Bootstrapping in R"
+subtitle: "Workshop 2 (2020)"
+author: "Dr. Sparkle L. Malone"
+output: pdf_document
+---
+
+# The primary objectives of the workshop:
+
+1. Fit monthly light response curves for Harvard forest to understand annual patterns ecosystem photosynthetic potential and respiration rates in temperate mixed forests. 
+
+2. Estimate monthly variance using bootstrapping. 
+
+3. Assignment: Fit monthly temperature response curves.
+
+4. Compare the Harvard forest tower to one other AmeriFlux Tower.
+
+
+## Data: 
+The data provided in NLM_Workshop includes 3 data frames. The harv dataframe includes flux data downloaded from Ameriflux (https://ameriflux.lbl.gov) for the Harvard Forest tower (Ha1). The only behind the scenes processing includes formating the timestamp and including year, and month. The harv dataset was then divided into two files: day (PAR > 0) and night (PAR == 0).
+
+```{r,Importing the data, echo=T, message=F, warning=F}
+
+load("~/OneDrive - Florida International University/Teaching/Workshops/Workshops/NLM_Workshop.RData")
+
+```
+
+## Libraries:
+
+```{r libraries, echo=T, message=F, warning=TRUE}
+
+library(nlstools)
+
+```
+
+
+# Visualizing Data: 
+
+```{r Visualizing Data, echo=TRUE, fig.height=2.5, fig.width=6.5, warning=F}
+par(mai=c(1,1,0.1,0.1))
+plot(harv$TIMESTAMP, harv$NEE, 
+     ylab=expression(paste("NEE (",mu,"mol m"^{-2} ~ s^{-1} ~ ")" )), xlab="")
+```
+*Figure 1. Net Ecosystem Exchange Rates at Harvard Forest from October 1990 to 2016.*
+
+# Fitting Light Response Curves With *nls*():
+
+To measure the relationship between photosynthetically active radiation (PAR; 400 - 700 nm) and net ecosystem exchange (NEE), we can fit a light response curve. Both PAR and NEE are in $\mu$mol m$^{-2}$ s$^{-1}$. The first step in fitting a nonlinear model is to take a look at the data.
+
+```{r LRC, echo=TRUE, fig.width=4, message=F, warning=F, , fig.height=4}
+plot( NEE ~ PAR, data= day)
+```
+*Figure 2.Net Ecosystem Exchange Rates relative to photosynthetically active radiation at Harvard forest from 1990 to 2016.*
+
+The light response curve model includes three parametrs: *a1* is the apparent quantum efficiency, *ax* is the maximum ecosystem CO$_{2}$ uptake rate, and *r* is the ecosystem respiration . We can use the *nls*() by specifying the model, data set, and starting values for the parameters. 
+
+Usage: nls(formula, data, start, ...)
+
+```{r, echo=TRUE, message= F, warning=F}
+
+y = nls( NEE ~ (a1 * PAR * ax)/(a1 * PAR + ax) + r, data=day[which(day$MONTH == 07),], 
+         start=list(a1= -1 , ax= -1, r= 1),
+         na.action=na.exclude, trace=F, control=nls.control(warnOnly=T))
+
+summary(y)
+```
+You can see here that the data doesn't support the model very well. Termination before convergence happens upon completion of maximum iterations, in the case of a singular gradient, and in the case that the step-size factor is reduced below a minimum factor. The starting values are the issue here.
+
+## Starting Values for Nonlinear Models:
+
+To reduce the bias introduced by the selection of starting values we can use selfStart to construct self-starting nonlinear models.
+
+Usage: selfStart(model, initial)
+
+```{r selfStart, echo=TRUE, message=F, warning=F}
+# 1. Create a function of the model:
+
+lrcModel <- function(PAR, a1, ax, r) {
+  NEE <- (a1 * PAR * ax)/(a1 * PAR + ax) + r
+  return(NEE)
+}
+
+# 2. Initial: create a function that calculates the initial values from the data.
+
+lrc.int <- function (mCall, LHS, data){
+  x <- data$PAR
+  y <- data$NEE
+  
+  r <- max(na.omit(y), na.rm=T) # Maximum NEE
+  ax <- min(na.omit(y), na.rm=T) # Minimum NEE
+  a1 <- (r + ax)/2 # Midway between r and a1
+  
+  # Create limits for the parameters:
+  a1[a1 > 0]<- -0.1
+  r[r > 50] <- ax*-1
+  r[r < 0] <- 1
+  
+  value = list(a1, ax, r) # Must include this for the selfStart function
+  names(value) <- mCall[c("a1", "ax", "r")] # Must include this for the selfStart function
+  return(value)
+}
+```
+
+Use the selfStart function to calculate initial values:
+```{r nls with selfStart, echo=TRUE, message=F, warning=F}
+# Selfstart function
+SS.lrc <- selfStart(model=lrcModel,initial= lrc.int)
+
+# 3. Find initial values:
+iv <- getInitial(NEE ~ SS.lrc('PAR', "a1", "ax", "r"),
+                 data = day[which(day$MONTH == 07),]) 
+iv
+```
+
+
+Use initial values in the model:
+```{r, echo=TRUE, message=F, warning=F}
+y = nls( NEE ~ (a1 * PAR * ax)/(a1 * PAR + ax) + r, day[which(day$MONTH == 07),], 
+         start=list(a1= iv$a1 , ax= iv$ax, r= iv$r),
+         na.action=na.exclude, trace=F, control=nls.control(warnOnly=T))
+
+summary(y)
+```
+Here, the model converged. Now, let check assumptions
+
+```{r, echo=TRUE, fig.height=4, fig.width=4, message=F, warning=F}
+
+res.lrc <- nlsResiduals(y)
+par(mfrow=c(2,2))
+plot(res.lrc, which=1)# Residulas vs fitted values (Constant Variance)
+plot(res.lrc, which=3) # Standardized residuals
+plot(res.lrc, which=4) # Autocorrelation
+plot(res.lrc, which=5) # Histogram (Normality)
+
+```
+ 
+
+In addition to the visual assessment of the model assumptions, the normality of residuals maybe evaluated using the Shapiro-Wilk test and autocorrelation in residuals may be assessed with the runs test. These tests are supplements that are occasionally useful next to the routine visual assessment of the model assumptions. Both tests are available through the function *test.nlsResiduals()*.
+ 
+ We can bootstrap to estimate errors for the parameters by resampling the data. The function *nlsBoot()* uses non-parametric bootstrap of mean centered residuals to obtain a number (niter) of bootstrap estimates. Bootstrap estimates and standard errors together with the median and percentiles confidence intervals are displayed by the *summary()*. The *nlsBoot()* provides confidence intervals even if the optimization algorithm fails to converge for some of the bootstrapped samples.
+
+```{r bootstrapping, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+  results <- nlsBoot(y, niter=100 )
+  summary(results)
+  plot(results, type = "boxplot")
+  
+```
+
+## You know:
+1. How to create a function for your model of interest.
+2. How to use *selfStart*() to find starting values based on your data set.
+3. How to use *nls*() to fit nonlinear models.
+4. How to use *nlsBoot*() to estimate the error around the parameter values by resampling your data.
+
+# Exercise: How variable are NEE rates over an annual cycle in Harvard Forest?
+
+Harvard Forest is a mixed temperate forest. We can see seasonal patterns in NEE in *Figure 1*. We want to quantify just how variable rates of NEE are annually. To do this we will fit light and temperature response curves monthly and compare parameter values.
+
+### Workflow:
+1. Create a dataframe to store month parameter values (parms.Month).
+2. Write a function to the fit model and extract paramters (nee.day).
+3. Write a loop to fit monthly curves and add parameters to a dataframe (parms.Month).
+4. Bootstrapping for error estimation.
+
+# 1. Create a dataframe to store month parameter values (parms.Month):
+
+```{r, echo=T, message=F, warning=F, results='hide'}
+
+# Dataframe to store parms and se
+
+parms.Month <- data.frame(
+  MONTH=numeric(),
+  a1=numeric(),
+  ax=numeric(),
+  r=numeric(),
+  a1.pvalue=numeric(),
+  ax.pvalue=numeric(),
+  r.pvalue=numeric(), stringsAsFactors=FALSE, row.names=NULL)
+
+parms.Month[1:12, 1] <- seq(1,12,1) # Adds months to the file
+```
+
+# 2. Write a function to fit the model and extract paramters (nee.day).
+
+```{r, echo=T, message=F, warning=F, results='hide'}
+
+nee.day <- function(dataframe){ y = nls( NEE ~ (a1 * PAR * ax)/(a1 * PAR + ax) + r, dataframe, 
+                                         start=list(a1= iv$a1 , ax= iv$ax, r= iv$r),
+                                         na.action=na.exclude, trace=F,
+                                         control=nls.control(warnOnly=T))
+
+
+y.df <- as.data.frame(cbind(t(coef(summary(y)) [1:3, 1]), t(coef(summary(y)) [1:3, 4])))
+names(y.df) <-c("a1","ax", "r", "a1.pvalue", "ax.pvalue", "r.pvalue") 
+return (y.df )}
+
+```
+
+# 3. Write a loop to fit monthly curves and add paramters to a dataframe (parms.Month).
+
+```{r, echo=T, message=F, warning=F, results='hide'}
+
+try(for(j in unique(day$MONTH)){
+  
+  # Determines starting values:
+    iv <- getInitial(NEE ~ SS.lrc('PAR', "a1", "ax", "r"), data = day[which(day$MONTH == j),]) 
+    
+  # Fits light response curve:
+    y3 <- try(nee.day(day[which(day$MONTH == j),]), silent=T) 
+    
+  # Extracts data and saves it in the dataframe
+    try(parms.Month[c(parms.Month$MONTH == j ), 2:7 ] <- cbind(y3), silent=T)
+    
+    rm(y3)
+  }, silent=T)
+
+parms.Month
+
+```
+
+# 4. Bootstrapping
+
+```{r, echo=TRUE, message=F, warning=F, results='hide'}
+# Create file to store parms and se
+boot.NEE <- data.frame(parms.Month[, c("MONTH")]); names (boot.NEE) <- "MONTH"
+boot.NEE$a1.est <- 0
+boot.NEE$ax.est<- 0
+boot.NEE$r.est<- 0
+boot.NEE$a1.se<- 0
+boot.NEE$ax.se<- 0
+boot.NEE$r.se<- 0
+
+ for ( j in unique(boot.NEE$Month)){
+  
+ y1 <-day[which(day$MONTH == j),] # Subsets data
+  
+  # Determines the starting values:
+  iv <- getInitial(NEE ~ SS.lrc('PAR', "a1", "ax", "r"), data = y1) 
+  
+  # Fit curve:
+  day.fit <- nls( NEE ~ (a1 * PAR * ax)/(a1 * PAR + ax) + r, data=y1, 
+                      start=list(a1= iv$a1 , ax= iv$ax, r= iv$r),
+                      na.action=na.exclude, trace=F, control=nls.control(warnOnly=T))
+  
+   # Bootstrap and extract values:
+  try(results <- nlsBoot(day.fit, niter=100 ), silent=T)
+  try(a <- t(results$estiboot)[1, 1:3], silent=T)
+  try(names(a) <- c('a1.est', 'ax.est', 'r.est'), silent=T)
+  try( b <- t(results$estiboot)[2, 1:3], silent=T)
+  try(names(b) <- c('a1.se', 'ax.se', 'r.se'), silent=T)
+  try(c <- t(data.frame(c(a,b))), silent=T)
+  
+  # Add bootstrap data to dataframe:
+  try(boot.NEE[c(boot.NEE$MONTH == j), 2:7] <- c[1, 1:6], silent=T)
+  try(rm(day.fit, a, b, c, results, y1), silent=T)
+  
+}
+
+  lrc <- merge( parms.Month, boot.NEE, by.x="MONTH", by.y="MONTH") # Merge dataframes
+  lrc
+```
+* Notice I used *try(code , silent=T)* to ensure my loop will continue to move through the months even if a model does not converge. *try* is a wrapper to run an expression that might fail and allow the user's code to handle error-recovery.
+
+# Assignment:
+
+Fit monthly temperature response curves using a similar approach with the night data from harv (night).
+
+### *NEE ~ a * exp$^{b*TA}$
+
+*a* is the base respiration rate when air temperature is 0 $\textdegree$C and *b* is an
+empirical coefficient. 
+
+## Workflow:
+1. Create a dataframe to store month parameter values (parms.Month).
+2. Write a function to the fit model and extract parameters (nee.night).
+3. Write a loop to fit monthly curves and add parameters to a dataframe (parms.Month).
+4. Bootstrapping for error estimation.

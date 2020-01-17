@@ -1,0 +1,25 @@
+---
+title: "Workshop 2_Nonlinear Models"
+author: "Sparkle L. Malone"
+date: "1/17/2020"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Objectives
+The primary objectives of this analysis is to fit monthly light response curves for Harvard forest to understand annual patterns ecosystem photosynthetic potential and respiration rates in temperate mixed forests...
+
+
+# Methods
+
+## Site Information (include a map of the harvard forest site)
+
+## Photosynthetic Potential
+
+## Ecosystem Respiration
+
+# Results (at least 1 plot and one table)
+
+# Discussion (1 paragrapgh)
